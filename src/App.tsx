@@ -1,35 +1,52 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { useEffect, useState } from "react";
+import { MarketInfo, Orderbook, useOrderbook, useSw } from "./services";
+import { MarketPriceInfo, Table } from "./components";
+import { useDocumentTitle } from "./helpers";
+import { MARKET_KEY, CRYPTO_KEY, BRAND_NAME, CURRENCY_KEY } from "./constants";
+import "./App.css";
 
-function App() {
-  const [count, setCount] = useState(0)
+const App = ({ useOrderSwDI = useSw, useMarketSwDI = useSw }) => {
+  const [marketInfo, setMarketInfo] = useState<MarketPriceInfo>();
+  const { orderbook, updateOrderbook, resetOrderbook } = useOrderbook();
+  const [orderSub] = useOrderSwDI(
+    `orderbook:${MARKET_KEY}`,
+    (ctx: Orderbook) => {
+      updateOrderbook(ctx.data);
+    }
+  );
+  useMarketSwDI(`market:${MARKET_KEY}`, (ctx: MarketInfo) => {
+    if (typeof ctx.data !== "object" || !ctx.data.market_price) return;
+    setMarketInfo((prev) => ({
+      marketPrice: ctx.data.market_price,
+      lastMarketPrice: prev?.marketPrice || ctx.data.market_price,
+    }));
+  });
+  useDocumentTitle(CRYPTO_KEY, BRAND_NAME, marketInfo?.marketPrice);
+  const hasInValidSequence = orderbook?.hasValidSequence === false;
 
-  return (
-    <>
-      <div>
-        <a href="https://vitejs.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
-}
+  useEffect(() => {
+    if (hasInValidSequence) {
+      console.log("Unsubscribe -> Invalid sequence number");
+      orderSub?.unsubscribe();
+      console.log("Reconnecting...");
+      orderSub?.subscribe();
+      resetOrderbook();
+    }
+  }, [hasInValidSequence, orderSub, resetOrderbook]);
 
-export default App
+  if (!orderbook)
+    return (
+      <Table
+        hasValidSequence={false}
+        sequence={0}
+        currency={CURRENCY_KEY}
+        crypto={CRYPTO_KEY}
+        bids={[]}
+        asks={[]}
+      />
+    );
+
+  return <Table {...orderbook} marketInfo={marketInfo} />;
+};
+
+export default App;
